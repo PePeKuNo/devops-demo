@@ -13,7 +13,7 @@ To jest prosty projekt zaliczeniowy z:
 - `frontend/` - aplikacja React oraz konfiguracja `nginx.conf`
 - `deploy-2v.bat` - uruchomienie pod Windows
 - `Makefile` - uruchomienie pod Linux/macOS lub w innych środowiskach z `make`
-- `OBRONA.md` - proste wyjaśnienie projektu do prezentacji i obrony
+
 
 ## Co robi projekt
 
