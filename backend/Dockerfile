@@ -1,20 +1,16 @@
-# Krok 1. Używam lekkiego oficjalnego obrazu Node.js na Alpine
-FROM node:18-alpine
-
-# Krok 2. Ustawiam katalog roboczy /app wewnątrz kontenera
+FROM node:20-alpine AS deps
 WORKDIR /app
-
-# Krok 3. Najpierw kopiuję pliki z zależnościami
 COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Krok 4. Instaluję zależności backendu
-RUN npm install
-
-# Krok 5. Potem kopiuję resztę kodu źródłowego
-COPY . .
-
-# Krok 6. Informuję, że aplikacja działa na porcie 3000
+FROM node:20-alpine AS production
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --chown=node:node package*.json ./
+COPY --chown=node:node server.js ./server.js
+USER node
 EXPOSE 3000
-
-# Krok 7. Uruchamiam serwer po starcie kontenera
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/health > /dev/null || exit 1
 CMD ["node", "server.js"]

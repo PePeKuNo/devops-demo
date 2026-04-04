@@ -1,25 +1,23 @@
-# Etap 1. Buduję produkcyjną wersję frontendu
-# Node.js jest mi tu potrzebny tylko do instalacji zależności i buildu
-FROM node:18-alpine AS build
+FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
+
+FROM node:20-alpine AS build
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-# Po buildzie katalog /app/build zawiera gotowe pliki statyczne
-
-# Etap 2. Serwuję gotowe pliki przez Nginx
-# W finalnym obrazie zostawiam już tylko Nginx
-FROM nginx:alpine
-
-# Kopiuję zbudowany frontend do katalogu publicznego Nginxa
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS production
+USER root
 COPY --from=build /app/build /usr/share/nginx/html
-
-# Podmieniam domyślną konfigurację Nginxa na własną
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-
-# Trzymam Nginxa na pierwszym planie, żeby kontener się nie kończył
+RUN mkdir -p /var/cache/nginx && \
+    chown -R 101:0 /usr/share/nginx/html /etc/nginx/conf.d /var/cache/nginx
+USER 101
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz > /dev/null || exit 1
 CMD ["nginx", "-g", "daemon off;"]

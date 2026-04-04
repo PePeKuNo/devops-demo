@@ -1,91 +1,78 @@
 # DevOps Demo
 
-To jest prosty projekt zaliczeniowy z:
-- `backendem` w `Node.js + Express`
-- `frontendem` w `React`
-- `Nginxem` jako reverse proxy
-- dwoma instancjami backendu do load balancingu
-- cache dla `/api/stats` po stronie Nginxa
+Product Dashboard z backendem `Node.js + Express`, frontendem `React` i `Nginx` jako reverse proxy do dwoch instancji backendu.
 
 ## Struktura projektu
 
-- `backend/` - API do produktów i statystyk
-- `frontend/` - aplikacja React oraz konfiguracja `nginx.conf`
-- `deploy-2v.bat` - uruchomienie pod Windows
-- `Makefile` - uruchomienie pod Linux/macOS lub w innych środowiskach z `make`
+- `backend/` - API produktow, endpointy `/health`, `/items`, `/stats`
+- `frontend/` - aplikacja React, konfiguracja `nginx.conf`, Dockerfile dla Nginx
+- `deploy-2v.bat` - lokalne uruchomienie pod Windows
+- `Makefile` - lokalne uruchomienie i komendy `docker buildx`
 
+## Funkcjonalnosc
 
-## Co robi projekt
+- `GET /health` zwraca status backendu, uptime, aktualny czas serwera i licznik obsluzonych zadan
+- `GET /stats` zwraca liczbe produktow, uptime, czas serwera, liczbe obsluzonych zadan i ID instancji
+- widok `Statystyki` w React pokazuje wszystkie nowe pola
+- `Nginx` rozdziela ruch miedzy `api-a` i `api-b`
+- `Nginx` cache'uje odpowiedzi z `/api/stats` przez 30 sekund
 
-- strona `Produkty` pobiera listę z backendu
-- formularz dodaje nowy produkt przez `POST /items`
-- strona `Statystyki` pokazuje liczbę produktów i ID instancji backendu
-- `Nginx` rozdziela ruch między `api-a` i `api-b`
-- `Nginx` cache'uje odpowiedź z `/api/stats` przez 30 sekund
+## Docker
 
-## Wymagania
+### Backend
 
-- Docker
-- Docker Hub login, jeśli obraz ma być wysłany do rejestru
-- `make` na systemach Unix-like
+- multi-stage z etapami `deps` i `production`
+- finalny obraz zawiera tylko produkcyjne `node_modules` i kod aplikacji
+- uruchamianie jako uzytkownik `node`
+- `HEALTHCHECK` sprawdza `GET /health`
 
-## Uruchomienie w Windows
+### Frontend
 
-Używam gotowego pliku:
+- multi-stage z etapami `deps`, `build` i `production`
+- etap produkcyjny oparty na obrazie `nginx-unprivileged`
+- finalny obraz zawiera tylko statyczny build React i konfiguracje Nginx
+- proces dziala jako nie-root
+- `HEALTHCHECK` sprawdza `GET /healthz`
+
+## Lokalny start
+
+Windows:
 
 ```bat
 deploy-2v.bat
 ```
 
-Skrypt sam sprawdza sieć `demo-net` i tworzy ją, jeśli jeszcze nie istnieje.
-
-## Uruchomienie w Linux/macOS
-
-Najpierw mogę zobaczyć dostępne komendy:
-
-```bash
-make help
-```
-
-Główny scenariusz uruchomienia:
+Linux/macOS:
 
 ```bash
 make deploy
 ```
 
-Jeśli chcę podać inny login Docker Hub:
-
-```bash
-make deploy DOCKER_USER=twoj_login
-```
-
-Jeśli chcę wysłać frontend do Docker Hub:
-
-```bash
-make push-frontend DOCKER_USER=twoj_login
-```
-
-## Ręczna kontrola działania
-
-Po uruchomieniu aplikacja powinna być dostępna pod adresem:
+Frontend po starcie jest dostepny pod:
 
 ```text
-http://localhost:8080
+http://localhost
 ```
 
-Podczas sprawdzania mogę pokazać:
+## Multi-platform buildx
 
-1. Na stronie `Produkty` wyświetla się lista produktów.
-2. Nowy produkt dodaje się przez formularz bez odświeżenia strony.
-3. Na stronie `Statystyki` widać liczbę produktów i ID instancji backendu.
-4. Powtarzane żądania do `/api/stats` w ciągu 30 sekund mogą wracać z cache.
-5. Backend działa w dwóch kontenerach: `api-a` i `api-b`.
-
-## Przydatne komendy Docker
+Tworzenie buildera:
 
 ```bash
-docker ps
-docker logs frontend
-docker logs api-a
-docker logs api-b
+docker buildx create --name multiarch --use
+docker buildx inspect multiarch --bootstrap
+```
+
+Publikacja obrazow:
+
+```bash
+docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 -t <docker-user>/demo-backend:latest --push ./backend
+docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 -t <docker-user>/demo-frontend:latest --push ./frontend
+```
+
+Weryfikacja manifestow:
+
+```bash
+docker buildx imagetools inspect <docker-user>/demo-backend:latest
+docker buildx imagetools inspect <docker-user>/demo-frontend:latest
 ```
