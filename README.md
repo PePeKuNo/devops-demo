@@ -21,8 +21,9 @@ Product Dashboard z backendem `Node.js + Express`, frontendem `React` i `Nginx` 
 
 ### Backend
 
-- multi-stage z etapami `deps` i `production`
+- multi-stage z etapami `deps`, `test` i `production`
 - finalny obraz zawiera tylko produkcyjne `node_modules` i kod aplikacji
+- etap `test` uruchamia `npm test`
 - uruchamianie jako uzytkownik `node`
 - `HEALTHCHECK` sprawdza `GET /health`
 
@@ -66,13 +67,18 @@ docker buildx inspect multiarch --bootstrap
 Publikacja obrazow:
 
 ```bash
-docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 -t <docker-user>/demo-backend:latest --push ./backend
-docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 -t <docker-user>/demo-frontend:latest --push ./frontend
+docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 \
+  --build-arg BUILD_DATE=2026-04-04T00:00:00Z --build-arg VERSION=v3 --build-arg NODE_ENV=production \
+  -t <docker-user>/demo-backend:v3 --push ./backend
+
+docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 \
+  --build-arg BUILD_DATE=2026-04-04T00:00:00Z --build-arg VERSION=v3 --build-arg NODE_ENV=production \
+  -t <docker-user>/demo-frontend:v3 --push ./frontend
 ```
 
 Weryfikacja manifestow:
 
 ```bash
-docker buildx imagetools inspect <docker-user>/demo-backend:latest
-docker buildx imagetools inspect <docker-user>/demo-frontend:latest
+docker buildx imagetools inspect <docker-user>/demo-backend:v3
+docker buildx imagetools inspect <docker-user>/demo-frontend:v3
 ```
