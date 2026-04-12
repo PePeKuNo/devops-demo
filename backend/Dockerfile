@@ -1,32 +1,38 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS deps
-ARG NODE_ENV=production
+FROM node:20-alpine AS deps-prod
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY app.js server.js ./
 
-FROM deps AS test
-ENV NODE_ENV=test
+FROM node:20-alpine AS deps-dev
+WORKDIR /app
+COPY package*.json ./
 RUN npm ci
-COPY tests ./tests
+
+FROM deps-dev AS test
+WORKDIR /app
+COPY . .
 RUN npm test
 
 FROM node:20-alpine AS production
 ARG BUILD_DATE
-ARG VERSION
+ARG VERSION=v2
 ARG NODE_ENV=production
 ENV NODE_ENV=$NODE_ENV
 WORKDIR /app
-LABEL org.opencontainers.image.created=$BUILD_DATE \
+LABEL org.opencontainers.image.title="product-dashboard-backend" \
+      org.opencontainers.image.description="Backend API for Product Dashboard with PostgreSQL and Redis" \
+      org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.version=$VERSION \
-      org.opencontainers.image.title="demo-backend"
+      org.opencontainers.image.licenses="MIT"
+RUN apk add --no-cache wget && \
+    mkdir -p /app && \
+    chown -R node:node /app
+COPY --from=deps-prod /app/node_modules ./node_modules
+COPY package*.json ./
+COPY app.js cache.js db.js server.js ./
 RUN --mount=from=test,source=/app,target=/test,ro test -f /test/package.json
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/package*.json ./
-COPY --from=deps /app/app.js ./app.js
-COPY --from=deps /app/server.js ./server.js
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

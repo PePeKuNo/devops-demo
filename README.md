@@ -1,41 +1,34 @@
 # DevOps Demo
 
-Product Dashboard z backendem `Node.js + Express`, frontendem `React` i `Nginx` jako reverse proxy do dwoch instancji backendu.
+Product Dashboard with:
 
-## Struktura projektu
+- backend: `Node.js + Express`
+- frontend: `React + Nginx`
+- database: `PostgreSQL`
+- cache: `Redis`
 
-- `backend/` - API produktow, endpointy `/health`, `/items`, `/stats`
-- `frontend/` - aplikacja React, konfiguracja `nginx.conf`, Dockerfile dla Nginx
-- `deploy-2v.bat` - lokalne uruchomienie pod Windows
-- `Makefile` - lokalne uruchomienie i komendy `docker buildx`
+The repository now covers both the base task and the second task from the screenshots:
 
-## Funkcjonalnosc
+- production-like startup without Docker Compose, only `docker run`
+- PostgreSQL data persisted in a named volume
+- Redis data stored in `tmpfs`
+- frontend `nginx.conf` mounted from host via bind mount
+- backend developer mode with bind mount and automatic reload
+- backup / restore / inspect scripts for named volumes
 
-- `GET /health` zwraca status backendu, uptime, aktualny czas serwera i licznik obsluzonych zadan
-- `GET /stats` zwraca liczbe produktow, uptime, czas serwera, liczbe obsluzonych zadan i ID instancji
-- widok `Statystyki` w React pokazuje wszystkie nowe pola
-- `Nginx` rozdziela ruch miedzy `api-a` i `api-b`
-- `Nginx` cache'uje odpowiedzi z `/api/stats` przez 30 sekund
+## Requirements
 
-## Docker
+- Docker Desktop
+- WSL / Linux / macOS shell for `*.sh` scripts
+- Node.js only if you want to run backend tests on the host
 
-### Backend
+## Production-like start
 
-- multi-stage z etapami `deps`, `test` i `production`
-- finalny obraz zawiera tylko produkcyjne `node_modules` i kod aplikacji
-- etap `test` uruchamia `npm test`
-- uruchamianie jako uzytkownik `node`
-- `HEALTHCHECK` sprawdza `GET /health`
+Linux / macOS / WSL:
 
-### Frontend
-
-- multi-stage z etapami `deps`, `build` i `production`
-- etap produkcyjny oparty na obrazie `nginx-unprivileged`
-- finalny obraz zawiera tylko statyczny build React i konfiguracje Nginx
-- proces dziala jako nie-root
-- `HEALTHCHECK` sprawdza `GET /healthz`
-
-## Lokalny start
+```sh
+./start.sh
+```
 
 Windows:
 
@@ -43,42 +36,163 @@ Windows:
 deploy-2v.bat
 ```
 
-Linux/macOS:
+Services after startup:
 
-```bash
-make deploy
+- frontend: `http://localhost`
+- backend: `http://localhost:3000`
+- health: `http://localhost:3000/health`
+- items: `http://localhost:3000/items`
+- stats: `http://localhost:3000/stats`
+- local registry: `http://localhost:5000/v2/_catalog`
+
+## Developer mode
+
+Run:
+
+```sh
+./run_dev.sh
 ```
 
-Frontend po starcie jest dostepny pod:
+What it does:
+
+- ensures `product-net`
+- ensures PostgreSQL named volume `product-postgres-data-v2`
+- ensures dev dependencies volume `product-backend-node-modules-dev`
+- starts PostgreSQL and Redis if needed
+- replaces `product-backend` with a dev container
+- mounts `./backend` into `/app`
+- starts `nodemon -L` so host file edits reload the API without `docker build`
+
+Why there are two named volumes now:
+
+- `product-postgres-data-v2` for PostgreSQL data
+- `product-backend-node-modules-dev` for dev container dependencies
+
+This also makes `inspect_volumes.sh` show at least two application volumes, which was part of the review criteria.
+
+## Volume scripts
+
+Create DB backup:
+
+```sh
+./backup.sh
+```
+
+Restore DB backup:
+
+```sh
+./restore.sh ./artifacts/backups/<archive-name>.tar.gz
+```
+
+Inspect named volumes:
+
+```sh
+./inspect_volumes.sh
+```
+
+## Verification
+
+### Backend tests
+
+```sh
+npm test
+```
+
+Result:
 
 ```text
-http://localhost
+Test Suites: 2 passed, 2 total
+Tests:       2 passed, 2 total
 ```
 
-## Multi-platform buildx
+### Hot reload proof without docker build
 
-Tworzenie buildera:
+1. Start dev mode:
 
-```bash
-docker buildx create --name multiarch --use
-docker buildx inspect multiarch --bootstrap
+```sh
+./run_dev.sh
 ```
 
-Publikacja obrazow:
+2. Initial API response from `/health`:
 
-```bash
-docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 \
-  --build-arg BUILD_DATE=2026-04-04T00:00:00Z --build-arg VERSION=v3 --build-arg NODE_ENV=production \
-  -t <docker-user>/demo-backend:v3 --push ./backend
-
-docker buildx build --builder multiarch --platform linux/amd64,linux/arm64 \
-  --build-arg BUILD_DATE=2026-04-04T00:00:00Z --build-arg VERSION=v3 --build-arg NODE_ENV=production \
-  -t <docker-user>/demo-frontend:v3 --push ./frontend
+```json
+{"status":"ok","uptimeSeconds":8.948,"serverTime":"2026-04-12T18:28:38.353Z","requestCount":1,"backendInstanceId":"6eb749ef92d7","responseSignature":"server.js response v2","postgres":"up","redis":"up"}
 ```
 
-Weryfikacja manifestow:
+3. Edit `backend/server.js` on the host and change:
 
-```bash
-docker buildx imagetools inspect <docker-user>/demo-backend:v3
-docker buildx imagetools inspect <docker-user>/demo-frontend:v3
+```js
+const responseSignature = 'server.js response v2';
+```
+
+to:
+
+```js
+const responseSignature = 'server.js response v3';
+```
+
+4. Container logs show automatic restart, without `docker build`:
+
+```text
+[nodemon] restarting due to changes...
+[nodemon] starting `node server.js`
+Backend dziala na porcie 3000
+```
+
+5. New `/health` response after the file edit:
+
+```json
+{"status":"ok","uptimeSeconds":16.85,"serverTime":"2026-04-12T18:29:08.384Z","requestCount":1,"backendInstanceId":"6eb749ef92d7","responseSignature":"server.js response v3","postgres":"up","redis":"up"}
+```
+
+### backup.sh sample output
+
+```text
+==> Creating backup from volume product-postgres-data-v2
+Backup created: /mnt/c/Users/Богдан/Desktop/devops-demo/artifacts/backups/product-postgres-data-v2-20260412T183013Z.tar.gz
+```
+
+### restore.sh sample output
+
+Backup was created when `items` contained 4 rows. After that one more item was added, then restore was executed.
+
+```text
+==> Restoring backup /mnt/c/Users/Богдан/Desktop/devops-demo/./artifacts/backups/product-postgres-data-v2-20260412T183013Z.tar.gz into volume product-postgres-data-v2
+==> Stopping running PostgreSQL container
+==> Waiting for PostgreSQL after restore
+Restore verified. items table rows: 4
+```
+
+After restore, `GET /items` returned:
+
+```json
+[{"id":1,"name":"Laptop"},{"id":2,"name":"Smartfon"},{"id":3,"name":"Klawiatura"},{"id":4,"name":"Backup proof item"}]
+```
+
+The post-backup item was removed by restore, which confirms that the archive was actually restored.
+
+### inspect_volumes.sh sample output
+
+```text
+Volume: product-postgres-data-v2
+  mountpoint: /var/lib/docker/volumes/product-postgres-data-v2/_data
+  size_kib: 46952
+  containers: product-postgres
+
+Volume: product-backend-node-modules-dev
+  mountpoint: /var/lib/docker/volumes/product-backend-node-modules-dev/_data
+  size_kib: 71912
+  containers: product-backend
+```
+
+## Useful make targets
+
+```sh
+make start
+make run-dev
+make backup
+make restore ARCHIVE=./artifacts/backups/<archive-name>.tar.gz
+make inspect-volumes
+make stop
+make clean
 ```

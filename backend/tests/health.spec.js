@@ -1,12 +1,16 @@
 const request = require('supertest');
 const { createApp } = require('../app');
+const { createMemoryCache } = require('../cache');
+const { createInMemoryStore } = require('../db');
 
 describe('GET /health', () => {
-  test('returns health payload with uptime, server time and request count', async () => {
+  test('returns health payload with postgres and redis status fields', async () => {
     let currentTime = Date.parse('2026-04-04T13:30:00.000Z');
     const app = createApp({
       instanceId: 'test-backend',
-      now: () => currentTime
+      now: () => currentTime,
+      storage: createInMemoryStore(),
+      cache: createMemoryCache()
     });
 
     currentTime += 1500;
@@ -19,7 +23,9 @@ describe('GET /health', () => {
       uptimeSeconds: 1.5,
       serverTime: '2026-04-04T13:30:01.500Z',
       requestCount: 1,
-      backendInstanceId: 'test-backend'
+      backendInstanceId: 'test-backend',
+      postgres: 'up',
+      redis: 'up'
     });
   });
 });
