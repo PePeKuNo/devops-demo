@@ -1,198 +1,192 @@
-# DevOps Demo
+# Docker Network Lab - Zaawansowana Konfiguracja Sieci
 
-Product Dashboard with:
+Projekt demonstracyjny przedstawiający zaawansowaną konfigurację sieci Docker z segmentacją, izolacją i load balancingiem.
 
-- backend: `Node.js + Express`
-- frontend: `React + Nginx`
-- database: `PostgreSQL`
-- cache: `Redis`
+## 📋 Architektura
 
-The repository now covers both the base task and the second task from the screenshots:
+### Komponenty
+- **Frontend (React)** - Interfejs użytkownika z nginx
+- **Backend (Node.js)** - API REST (2 instancje dla load balancingu)
+- **Worker** - Przetwarzanie zadań w tle
+- **PostgreSQL** - Baza danych
+- **Redis** - Cache i kolejka zadań
 
-- production-like startup without Docker Compose, only `docker run`
-- PostgreSQL data persisted in a named volume
-- Redis data stored in `tmpfs`
-- frontend `nginx.conf` mounted from host via bind mount
-- backend developer mode with bind mount and automatic reload
-- backup / restore / inspect scripts for named volumes
+### Sieci Docker
+- **proxy-net** (172.30.0.0/16) - Frontend i backend
+- **app-net** (172.31.0.0/16) - Backend, worker, Redis
+- **db-net** (172.32.0.0/16) - Backend, worker, PostgreSQL
 
-## Requirements
+## 🚀 Szybki Start
 
-- Docker Desktop
-- WSL / Linux / macOS shell for `*.sh` scripts
-- Node.js only if you want to run backend tests on the host
+### Wymagania
+- Docker
+- Docker Compose (opcjonalnie)
+- Bash
 
-## Production-like start
+### Uruchomienie
 
-Linux / macOS / WSL:
-
-```sh
-./start.sh
+```bash
+bash lab.sh
 ```
 
-Windows:
+Skrypt automatycznie:
+1. Czyści stare kontenery i sieci
+2. Tworzy wolumeny dla danych
+3. Buduje obrazy Docker
+4. Uruchamia wszystkie kontenery
+5. Weryfikuje konfigurację
 
-```bat
-deploy-2v.bat
+### Dostęp do Aplikacji
+
+- **Frontend**: http://localhost/
+- **API**: http://localhost/api/items
+- **Health Check**: http://localhost/api/health
+- **Stats**: http://localhost/api/stats
+
+## 🔒 Izolacja Sieci
+
+### Zasady Segmentacji
+
+| Kontener | proxy-net | app-net | db-net | Porty |
+|----------|-----------|---------|--------|-------|
+| nginx (frontend) | ✅ | ❌ | ❌ | 80 |
+| backend_1 | ✅ | ✅ | ✅ | - |
+| backend_2 | ✅ | ✅ | ✅ | - |
+| worker | ❌ | ✅ | ✅ | - |
+| redis | ❌ | ✅ | ❌ | - |
+| postgres | ❌ | ❌ | ✅ | - |
+
+### Weryfikacja Izolacji
+
+```bash
+# Nginx NIE może połączyć się z PostgreSQL (oczekiwane)
+docker exec nginx ping -c 3 postgres
+
+# Backend MOŻE połączyć się z PostgreSQL
+docker exec backend_1 ping -c 3 postgres
+
+# Worker NIE jest dostępny z zewnątrz
+docker port worker
 ```
 
-Services after startup:
+## ⚖️ Load Balancing
 
-- frontend: `http://localhost`
-- backend: `http://localhost:3000`
-- health: `http://localhost:3000/health`
-- items: `http://localhost:3000/items`
-- stats: `http://localhost:3000/stats`
-- local registry: `http://localhost:5000/v2/_catalog`
+Nginx automatycznie balansuje ruch między `backend_1` i `backend_2`.
 
-## Developer mode
+### Test Balansowania
 
-Run:
-
-```sh
-./run_dev.sh
+```bash
+# Wykonaj 10 żądań i sprawdź dystrybucję
+for i in {1..10}; do 
+  curl -s -I http://localhost/api/items | grep "X-Backend-Instance"
+done | sort | uniq -c
 ```
 
-What it does:
+Oczekiwany wynik: ~5 żądań do każdego backendu.
 
-- ensures `product-net`
-- ensures PostgreSQL named volume `product-postgres-data-v2`
-- ensures dev dependencies volume `product-backend-node-modules-dev`
-- starts PostgreSQL and Redis if needed
-- replaces `product-backend` with a dev container
-- mounts `./backend` into `/app`
-- starts `nodemon -L` so host file edits reload the API without `docker build`
+## 📊 Monitorowanie
 
-Why there are two named volumes now:
+### Status Kontenerów
 
-- `product-postgres-data-v2` for PostgreSQL data
-- `product-backend-node-modules-dev` for dev container dependencies
-
-This also makes `inspect_volumes.sh` show at least two application volumes, which was part of the review criteria.
-
-## Volume scripts
-
-Create DB backup:
-
-```sh
-./backup.sh
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Networks}}"
 ```
 
-Restore DB backup:
+### Logi
 
-```sh
-./restore.sh ./artifacts/backups/<archive-name>.tar.gz
+```bash
+# Backend
+docker logs backend_1
+
+# Worker
+docker logs worker
+
+# Frontend/Nginx
+docker logs nginx
 ```
 
-Inspect named volumes:
+### Statystyki
 
-```sh
-./inspect_volumes.sh
+```bash
+curl http://localhost/api/stats
 ```
 
-## Verification
+## 🛠️ Struktura Projektu
 
-### Backend tests
-
-```sh
-npm test
+```
+.
+├── backend/          # Node.js API
+│   ├── app.js
+│   ├── worker.js
+│   ├── cache.js
+│   ├── db.js
+│   └── Dockerfile
+├── frontend/         # React UI
+│   ├── src/
+│   ├── nginx.conf
+│   └── Dockerfile
+├── worker/           # Worker container
+│   └── Dockerfile
+├── proxy/            # Nginx config (opcjonalnie)
+│   └── nginx.conf
+└── lab.sh           # Główny skrypt uruchomieniowy
 ```
 
-Result:
+## 🧪 Testowanie
 
-```text
-Test Suites: 2 passed, 2 total
-Tests:       2 passed, 2 total
+### Dodawanie Produktu
+
+```bash
+curl -X POST http://localhost/api/items \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Test Product"}'
 ```
 
-### Hot reload proof without docker build
+### Pobieranie Listy
 
-1. Start dev mode:
-
-```sh
-./run_dev.sh
+```bash
+curl http://localhost/api/items
 ```
 
-2. Initial API response from `/health`:
+### Health Check
 
-```json
-{"status":"ok","uptimeSeconds":8.948,"serverTime":"2026-04-12T18:28:38.353Z","requestCount":1,"backendInstanceId":"6eb749ef92d7","responseSignature":"server.js response v2","postgres":"up","redis":"up"}
+```bash
+curl http://localhost/api/health
 ```
 
-3. Edit `backend/server.js` on the host and change:
+## 🔧 Czyszczenie
 
-```js
-const responseSignature = 'server.js response v2';
+```bash
+# Zatrzymaj wszystkie kontenery
+docker stop $(docker ps -q)
+
+# Usuń kontenery
+docker rm nginx backend_1 backend_2 worker redis postgres
+
+# Usuń sieci
+docker network rm proxy-net app-net db-net
+
+# Usuń wolumeny (UWAGA: usuwa dane!)
+docker volume rm postgres_data redis_data
 ```
 
-to:
+## 📝 Notatki
 
-```js
-const responseSignature = 'server.js response v3';
-```
+- Worker przetwarza zadania z kolejki Redis
+- PostgreSQL przechowuje dane produktów
+- Wszystkie kontenery mają health checks
+- Dane są persystowane w wolumenach Docker
 
-4. Container logs show automatic restart, without `docker build`:
+## 🎯 Kluczowe Funkcje
 
-```text
-[nodemon] restarting due to changes...
-[nodemon] starting `node server.js`
-Backend dziala na porcie 3000
-```
+✅ Segmentacja sieci z custom subnet/gateway  
+✅ Izolacja między warstwami (frontend/backend/database)  
+✅ Load balancing między instancjami backend  
+✅ Worker bez ekspozycji portów  
+✅ Automatyczna weryfikacja konfiguracji  
+✅ Health checks dla wszystkich serwisów  
+✅ Persystencja danych w wolumenach  
 
-5. New `/health` response after the file edit:
+## 📚 Więcej Informacji
 
-```json
-{"status":"ok","uptimeSeconds":16.85,"serverTime":"2026-04-12T18:29:08.384Z","requestCount":1,"backendInstanceId":"6eb749ef92d7","responseSignature":"server.js response v3","postgres":"up","redis":"up"}
-```
-
-### backup.sh sample output
-
-```text
-==> Creating backup from volume product-postgres-data-v2
-Backup created: /mnt/c/Users/Богдан/Desktop/devops-demo/artifacts/backups/product-postgres-data-v2-20260412T183013Z.tar.gz
-```
-
-### restore.sh sample output
-
-Backup was created when `items` contained 4 rows. After that one more item was added, then restore was executed.
-
-```text
-==> Restoring backup /mnt/c/Users/Богдан/Desktop/devops-demo/./artifacts/backups/product-postgres-data-v2-20260412T183013Z.tar.gz into volume product-postgres-data-v2
-==> Stopping running PostgreSQL container
-==> Waiting for PostgreSQL after restore
-Restore verified. items table rows: 4
-```
-
-After restore, `GET /items` returned:
-
-```json
-[{"id":1,"name":"Laptop"},{"id":2,"name":"Smartfon"},{"id":3,"name":"Klawiatura"},{"id":4,"name":"Backup proof item"}]
-```
-
-The post-backup item was removed by restore, which confirms that the archive was actually restored.
-
-### inspect_volumes.sh sample output
-
-```text
-Volume: product-postgres-data-v2
-  mountpoint: /var/lib/docker/volumes/product-postgres-data-v2/_data
-  size_kib: 46952
-  containers: product-postgres
-
-Volume: product-backend-node-modules-dev
-  mountpoint: /var/lib/docker/volumes/product-backend-node-modules-dev/_data
-  size_kib: 71912
-  containers: product-backend
-```
-
-## Useful make targets
-
-```sh
-make start
-make run-dev
-make backup
-make restore ARCHIVE=./artifacts/backups/<archive-name>.tar.gz
-make inspect-volumes
-make stop
-make clean
-```
+Projekt demonstracyjny dla celów edukacyjnych - zaawansowana konfiguracja sieci Docker.

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-alpine AS deps-prod
+FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
@@ -26,15 +26,15 @@ LABEL org.opencontainers.image.title="product-dashboard-backend" \
       org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.licenses="MIT"
-RUN apk add --no-cache wget && \
+RUN apk add --no-cache curl iputils && \
     mkdir -p /app && \
     chown -R node:node /app
-COPY --from=deps-prod /app/node_modules ./node_modules
+COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
-COPY app.js cache.js db.js server.js ./
+COPY app.js cache.js db.js server.js worker.js ./
 RUN --mount=from=test,source=/app,target=/test,ro test -f /test/package.json
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/health > /dev/null || exit 1
+  CMD sh -c 'curl -f http://127.0.0.1:${PORT:-3000}/health || exit 1'
 CMD ["node", "server.js"]

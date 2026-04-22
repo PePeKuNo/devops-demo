@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
+import { HashRouter, Link, Route, Routes } from 'react-router-dom';
 
 function Home() {
   return <h2>Strona Glowna Dashboardu</h2>;
@@ -82,7 +82,7 @@ function Stats() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <nav>
         <Link to="/">Glowna</Link> | <Link to="/products">Produkty</Link> | <Link to="/stats">Statystyki</Link>
       </nav>
@@ -92,6 +92,6 @@ export default function App() {
         <Route path="/products" element={<Products />} />
         <Route path="/stats" element={<Stats />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

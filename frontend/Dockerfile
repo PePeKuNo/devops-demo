@@ -21,6 +21,7 @@ LABEL org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.title="demo-frontend"
 USER root
+RUN apk add --no-cache curl
 COPY --from=build /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 RUN mkdir -p /var/cache/nginx && \
@@ -28,5 +29,5 @@ RUN mkdir -p /var/cache/nginx && \
 USER nginx
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/healthz > /dev/null || exit 1
+  CMD curl -f http://127.0.0.1:8080/healthz || exit 1
 CMD ["nginx", "-g", "daemon off;"]
